@@ -288,11 +288,36 @@ async def _has_exact_text(locators: Locator, expected: str) -> bool:
     return False
 
 
+def _normalize_text(text: str) -> str:
+    # Douyin renders a normal space inside a nickname as a non-breaking
+    # space (U+00A0), and shows the signature / an emoji as an extra line
+    # under the name. Collapse every run of whitespace (incl. NBSP) to a
+    # single space and strip, so "miss u" matches "miss\u00A0u".
+    return re.sub(r"\s+", " ", text).strip()
+
+
 async def _text_equals(locator: Locator, expected: str) -> bool:
     try:
-        return (await locator.inner_text(timeout=500)).strip() == expected
+        actual = await locator.inner_text(timeout=500)
     except Exception:
         return False
+    norm_actual = _normalize_text(actual)
+    norm_expected = _normalize_text(expected)
+    if norm_actual == norm_expected:
+        return True
+    # The result row may stack the name and a signature / emoji on separate
+    # lines ("荔枝大厘子\n（见过李荣浩并且马上再见版"). Match when the expected
+    # name equals any single non-empty line of the displayed title.
+    for line in actual.splitlines():
+        if line.strip() and _normalize_text(line) == norm_expected:
+            return True
+    # Prefix fallback: the chat header / result title renders the full display
+    # name as one concatenated string ("荔枝大厘子（见过李荣浩并且马上再见版）"),
+    # which begins with the configured short name. Only accept when the target
+    # name is a leading segment of the rendered text.
+    if norm_actual.startswith(norm_expected):
+        return True
+    return False
 
 
 # Matches a group chat display name: the configured target name optionally
